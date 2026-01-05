@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>姿勢判定プログラム</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+  <style>
+    .status-text { font-size: 2rem; font-weight: bold; color: red; }
+    .good { color: green; }
+  </style>
+</head>
+<body>
+  <h1>姿勢判定システム</h1>
+  <div id="status" class="status-text">判定中...</div>
+  <video id="input_video" style="display:none;"></video>
+  <canvas id="output_canvas" width="640px" height="480px"></canvas>
+
+  <script type="module">
+    const videoElement = document.getElementById('input_video');
+    const canvasElement = document.getElementById('output_canvas');
+    const statusDiv = document.getElementById('status');
+    const canvasCtx = canvasElement.getContext('2d');
+
+    function onResults(results) {
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const landmarks = results.multiFaceLandmarks[0];
+        
+        // 鼻の頭(1)とおでこ上部(10)、顎の下(152)の座標を利用
+        const nose = landmarks[1];
+        const forehead = landmarks[10];
+        const chin = landmarks[152];
+
+        // 簡易的な判定ロジック：
+        // おでこから顎の距離に対して、鼻がどの位置にあるかで傾きを計算
+        const faceHeight = chin.y - forehead.y;
+        const nosePosition = (nose.y - forehead.y) / faceHeight;
+
+        // しきい値（0.6以上なら下を向いていると判定するなど。調整が必要）
+        if (nosePosition > 0.65) {
+          statusDiv.innerText = "× まがっている（下を向いています）";
+          statusDiv.className = "status-text";
+        } else {
+          statusDiv.innerText = "○ まっすぐ";
+          statusDiv.className = "status-text good";
+        }
+      }
+    }
+
+    const faceMesh = new FaceMesh({locateFile: (file) => {
+      return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+    }});
+    
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    faceMesh.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await faceMesh.send({image: videoElement});
+      },
+      width: 640,
+      height: 480
+    });
+    camera.start();
+  </script>
+</body>
+</html>
