@@ -1,75 +1,789 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <title>姿勢判定プログラム</title>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
-  <style>
-    .status-text { font-size: 2rem; font-weight: bold; color: red; }
-    .good { color: green; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>首角度検出システム</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;500;700&family=Space+Mono:wght@400;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --accent-good: #00ff88;
+            --accent-warning: #ffaa00;
+            --accent-bad: #ff4466;
+            --text-primary: #ffffff;
+            --text-secondary: #888899;
+            --grid-color: rgba(255, 255, 255, 0.03);
+        }
+        
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        /* Grid background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(var(--grid-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 100%;
+            padding: 16px;
+            padding-bottom: 100px;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            font-family: 'Space Mono', monospace;
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #fff 0%, #888 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            font-family: 'Space Mono', monospace;
+        }
+        
+        /* Video Section */
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto 20px;
+            border-radius: 16px;
+            overflow: hidden;
+            background: var(--bg-card);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+        }
+        
+        #video, #canvas {
+            width: 100%;
+            display: block;
+            transform: scaleX(-1);
+        }
+        
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .video-overlay {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            display: flex;
+            gap: 8px;
+        }
+        
+        .status-badge {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.65rem;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .status-badge.active {
+            border-color: var(--accent-good);
+            color: var(--accent-good);
+        }
+        
+        /* Main Angle Display */
+        .angle-display {
+            background: var(--bg-card);
+            border-radius: 20px;
+            padding: 24px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            text-align: center;
+        }
+        
+        .angle-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 8px;
+        }
+        
+        .angle-value {
+            font-family: 'Space Mono', monospace;
+            font-size: 4rem;
+            font-weight: 700;
+            line-height: 1;
+            transition: color 0.3s ease;
+        }
+        
+        .angle-unit {
+            font-size: 1.5rem;
+            opacity: 0.5;
+        }
+        
+        .posture-status {
+            margin-top: 16px;
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: inline-block;
+            transition: all 0.3s ease;
+        }
+        
+        .posture-status.good {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-good);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+        
+        .posture-status.warning {
+            background: rgba(255, 170, 0, 0.15);
+            color: var(--accent-warning);
+            border: 1px solid rgba(255, 170, 0, 0.3);
+        }
+        
+        .posture-status.bad {
+            background: rgba(255, 68, 102, 0.15);
+            color: var(--accent-bad);
+            border: 1px solid rgba(255, 68, 102, 0.3);
+        }
+        
+        /* Detail Cards */
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .detail-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .detail-card .label {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+        
+        .detail-card .value {
+            font-family: 'Space Mono', monospace;
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        
+        .detail-card .sub {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        
+        /* Diagram */
+        .diagram-section {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .diagram-title {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        
+        .diagram-container {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }
+        
+        .diagram-item {
+            text-align: center;
+        }
+        
+        .diagram-item svg {
+            width: 80px;
+            height: 100px;
+        }
+        
+        .diagram-item .label {
+            font-size: 0.7rem;
+            margin-top: 8px;
+            color: var(--text-secondary);
+        }
+        
+        /* Calibration */
+        .calibration-section {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .calibration-title {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 12px;
+        }
+        
+        .calibration-btn {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-family: 'Noto Sans JP', sans-serif;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: linear-gradient(135deg, #2a2a3a 0%, #1a1a2a 100%);
+            color: var(--text-primary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .calibration-btn:active {
+            transform: scale(0.98);
+        }
+        
+        .calibration-btn.calibrating {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.2) 0%, rgba(0, 255, 136, 0.1) 100%);
+            border-color: var(--accent-good);
+            color: var(--accent-good);
+        }
+        
+        .calibration-info {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 12px;
+            line-height: 1.6;
+        }
+        
+        /* Permission Modal */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+        
+        .modal-content {
+            background: var(--bg-card);
+            border-radius: 20px;
+            padding: 32px 24px;
+            max-width: 360px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .modal-icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+        }
+        
+        .modal-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        
+        .modal-text {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+            line-height: 1.6;
+        }
+        
+        .modal-btn {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-family: 'Noto Sans JP', sans-serif;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            background: linear-gradient(135deg, var(--accent-good) 0%, #00cc6a 100%);
+            color: #000;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        /* Responsive */
+        @media (min-width: 768px) {
+            .container {
+                max-width: 500px;
+                margin: 0 auto;
+                padding: 32px;
+            }
+            
+            h1 {
+                font-size: 1.8rem;
+            }
+        }
+    </style>
 </head>
 <body>
-  <h1>姿勢判定システム</h1>
-  <div id="status" class="status-text">判定中...</div>
-  <video id="input_video" style="display:none;"></video>
-  <canvas id="output_canvas" width="640px" height="480px"></canvas>
-
-  <script type="module">
-    const videoElement = document.getElementById('input_video');
-    const canvasElement = document.getElementById('output_canvas');
-    const statusDiv = document.getElementById('status');
-    const canvasCtx = canvasElement.getContext('2d');
-
-    function onResults(results) {
-      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-
-      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-        const landmarks = results.multiFaceLandmarks[0];
-        
-        // 鼻の頭(1)とおでこ上部(10)、顎の下(152)の座標を利用
-        const nose = landmarks[1];
-        const forehead = landmarks[10];
-        const chin = landmarks[152];
-
-        // 簡易的な判定ロジック：
-        // おでこから顎の距離に対して、鼻がどの位置にあるかで傾きを計算
-        const faceHeight = chin.y - forehead.y;
-        const nosePosition = (nose.y - forehead.y) / faceHeight;
-
-        // しきい値（0.6以上なら下を向いていると判定するなど。調整が必要）
-        if (nosePosition > 0.65) {
-          statusDiv.innerText = "× まがっている（下を向いています）";
-          statusDiv.className = "status-text";
-        } else {
-          statusDiv.innerText = "○ まっすぐ";
-          statusDiv.className = "status-text good";
-        }
-      }
-    }
-
-    const faceMesh = new FaceMesh({locateFile: (file) => {
-      return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-    }});
+    <!-- Permission Modal -->
+    <div class="modal" id="permissionModal">
+        <div class="modal-content">
+            <div class="modal-icon">📱</div>
+            <div class="modal-title">センサーへのアクセス</div>
+            <div class="modal-text">
+                カメラと傾斜センサーを使用して、<br>正確な首の角度を測定します。
+            </div>
+            <button class="modal-btn" id="startBtn">開始する</button>
+        </div>
+    </div>
     
-    faceMesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-    faceMesh.onResults(onResults);
-
-    const camera = new Camera(videoElement, {
-      onFrame: async () => {
-        await faceMesh.send({image: videoElement});
-      },
-      width: 640,
-      height: 480
-    });
-    camera.start();
-  </script>
+    <div class="container">
+        <header>
+            <h1>NECK ANGLE DETECTOR</h1>
+            <p class="subtitle">Real-time Posture Analysis</p>
+        </header>
+        
+        <div class="video-container">
+            <video id="video" playsinline autoplay></video>
+            <canvas id="canvas"></canvas>
+            <div class="video-overlay">
+                <span class="status-badge" id="cameraStatus">CAMERA: OFF</span>
+                <span class="status-badge" id="sensorStatus">SENSOR: OFF</span>
+            </div>
+        </div>
+        
+        <div class="angle-display">
+            <div class="angle-label">実際の首角度</div>
+            <div class="angle-value" id="neckAngle">
+                --<span class="angle-unit">°</span>
+            </div>
+            <div class="posture-status" id="postureStatus">測定待機中</div>
+        </div>
+        
+        <div class="detail-grid">
+            <div class="detail-card">
+                <div class="label">カメラ検出角度</div>
+                <div class="value" id="faceAngle">--°</div>
+                <div class="sub">Face Mesh</div>
+            </div>
+            <div class="detail-card">
+                <div class="label">スマホ傾き</div>
+                <div class="value" id="phoneAngle">--°</div>
+                <div class="sub">傾斜センサー</div>
+            </div>
+        </div>
+        
+        <div class="diagram-section">
+            <div class="diagram-title">検出原理</div>
+            <div class="diagram-container">
+                <div class="diagram-item">
+                    <svg viewBox="0 0 80 100" id="diagramFace">
+                        <!-- Head -->
+                        <ellipse cx="40" cy="30" rx="18" ry="22" fill="none" stroke="#555" stroke-width="2"/>
+                        <!-- Body -->
+                        <line x1="40" y1="52" x2="40" y2="85" stroke="#555" stroke-width="2"/>
+                        <!-- Shoulders -->
+                        <line x1="20" y1="70" x2="60" y2="70" stroke="#555" stroke-width="2"/>
+                        <!-- Neck angle indicator -->
+                        <line x1="40" y1="52" x2="40" y2="30" stroke="#00ff88" stroke-width="2" id="neckLine"/>
+                    </svg>
+                    <div class="label">顔の傾き</div>
+                </div>
+                <div class="diagram-item" style="font-size: 1.5rem; color: var(--text-secondary);">+</div>
+                <div class="diagram-item">
+                    <svg viewBox="0 0 80 100" id="diagramPhone">
+                        <!-- Phone -->
+                        <rect x="25" y="15" width="30" height="55" rx="4" fill="none" stroke="#555" stroke-width="2" id="phoneRect"/>
+                        <!-- Screen -->
+                        <rect x="28" y="20" width="24" height="45" fill="#1a1a2a"/>
+                        <!-- Vertical reference -->
+                        <line x1="40" y1="80" x2="40" y2="95" stroke="#333" stroke-width="1" stroke-dasharray="2"/>
+                    </svg>
+                    <div class="label">スマホ傾き</div>
+                </div>
+                <div class="diagram-item" style="font-size: 1.5rem; color: var(--text-secondary);">=</div>
+                <div class="diagram-item">
+                    <svg viewBox="0 0 80 100">
+                        <!-- Result angle arc -->
+                        <path d="M 40 70 L 40 20" stroke="#00ff88" stroke-width="3"/>
+                        <text x="40" y="90" text-anchor="middle" fill="#00ff88" font-family="Space Mono" font-size="12" id="resultAngleText">0°</text>
+                    </svg>
+                    <div class="label">実際の首角度</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="calibration-section">
+            <div class="calibration-title">キャリブレーション</div>
+            <button class="calibration-btn" id="calibrateBtn">
+                正しい姿勢で基準を設定
+            </button>
+            <p class="calibration-info">
+                📌 正しい姿勢でスマホを持った状態でボタンを押してください。<br>
+                現在の姿勢を「0度」の基準として設定します。
+            </p>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    
+    <script>
+        // State
+        let faceMesh = null;
+        let camera = null;
+        let isRunning = false;
+        
+        // Sensor data
+        let phoneAngle = 0;
+        let faceAngle = 0;
+        let calibrationOffset = 0;
+        let phoneTiltCalibration = 0;
+        
+        // DOM Elements
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const permissionModal = document.getElementById('permissionModal');
+        const startBtn = document.getElementById('startBtn');
+        const calibrateBtn = document.getElementById('calibrateBtn');
+        const cameraStatus = document.getElementById('cameraStatus');
+        const sensorStatus = document.getElementById('sensorStatus');
+        const neckAngleEl = document.getElementById('neckAngle');
+        const faceAngleEl = document.getElementById('faceAngle');
+        const phoneAngleEl = document.getElementById('phoneAngle');
+        const postureStatus = document.getElementById('postureStatus');
+        
+        // Initialize
+        startBtn.addEventListener('click', async () => {
+            await requestPermissions();
+        });
+        
+        calibrateBtn.addEventListener('click', () => {
+            calibrate();
+        });
+        
+        async function requestPermissions() {
+            try {
+                // Request device orientation permission (iOS)
+                if (typeof DeviceOrientationEvent !== 'undefined' && 
+                    typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        alert('傾斜センサーの許可が必要です');
+                        return;
+                    }
+                }
+                
+                // Start everything
+                await startCamera();
+                startOrientationSensor();
+                permissionModal.classList.add('hidden');
+                
+            } catch (error) {
+                console.error('Permission error:', error);
+                alert('センサーへのアクセスに失敗しました: ' + error.message);
+            }
+        }
+        
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: 'user',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                });
+                
+                video.srcObject = stream;
+                await video.play();
+                
+                // Set canvas size
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                // Initialize FaceMesh
+                await initFaceMesh();
+                
+                cameraStatus.textContent = 'CAMERA: ON';
+                cameraStatus.classList.add('active');
+                
+            } catch (error) {
+                console.error('Camera error:', error);
+                throw error;
+            }
+        }
+        
+        async function initFaceMesh() {
+            faceMesh = new FaceMesh({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                }
+            });
+            
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            
+            faceMesh.onResults(onFaceMeshResults);
+            
+            // Start camera loop
+            const cameraLoop = new Camera(video, {
+                onFrame: async () => {
+                    await faceMesh.send({ image: video });
+                },
+                width: 640,
+                height: 480
+            });
+            
+            await cameraLoop.start();
+            isRunning = true;
+        }
+        
+        function onFaceMeshResults(results) {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                
+                // Draw face mesh (subtle)
+                drawFaceMesh(landmarks);
+                
+                // Calculate face angle from landmarks
+                faceAngle = calculateFaceAngle(landmarks);
+                
+                // Update display
+                updateDisplay();
+            }
+        }
+        
+        function drawFaceMesh(landmarks) {
+            // Draw key points
+            const keyPoints = [1, 33, 263, 61, 291, 199]; // Nose, eyes, mouth corners
+            
+            ctx.fillStyle = 'rgba(0, 255, 136, 0.6)';
+            keyPoints.forEach(idx => {
+                const point = landmarks[idx];
+                const x = point.x * canvas.width;
+                const y = point.y * canvas.height;
+                ctx.beginPath();
+                ctx.arc(x, y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            // Draw nose to forehead line (pitch indicator)
+            const nose = landmarks[1];
+            const forehead = landmarks[10];
+            
+            ctx.strokeStyle = 'rgba(0, 255, 136, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(nose.x * canvas.width, nose.y * canvas.height);
+            ctx.lineTo(forehead.x * canvas.width, forehead.y * canvas.height);
+            ctx.stroke();
+        }
+        
+        function calculateFaceAngle(landmarks) {
+            // Use nose tip (1) and forehead (10) for pitch calculation
+            const noseTip = landmarks[1];
+            const forehead = landmarks[10];
+            
+            // Calculate pitch angle (forward/backward tilt)
+            // Using the Z difference and Y difference
+            const dy = noseTip.y - forehead.y;
+            const dz = (noseTip.z - forehead.z) * 2; // Z is normalized, scale it up
+            
+            // Calculate angle in degrees
+            let pitchAngle = Math.atan2(dz, dy) * (180 / Math.PI);
+            
+            // Also use left/right eye for more accuracy
+            const leftEye = landmarks[33];
+            const rightEye = landmarks[263];
+            const eyeCenter = {
+                y: (leftEye.y + rightEye.y) / 2,
+                z: (leftEye.z + rightEye.z) / 2
+            };
+            
+            // Combine nose-forehead with eye position for better pitch estimation
+            const noseToEyeDy = noseTip.y - eyeCenter.y;
+            const noseToEyeDz = (noseTip.z - eyeCenter.z) * 3;
+            
+            let pitchFromEyes = Math.atan2(noseToEyeDz, noseToEyeDy) * (180 / Math.PI);
+            
+            // Weighted average
+            let finalPitch = (pitchAngle * 0.4 + pitchFromEyes * 0.6);
+            
+            // Normalize to reasonable range (-45 to 45)
+            finalPitch = Math.max(-45, Math.min(45, finalPitch));
+            
+            return finalPitch;
+        }
+        
+        function startOrientationSensor() {
+            if (window.DeviceOrientationEvent) {
+                window.addEventListener('deviceorientation', handleOrientation);
+                sensorStatus.textContent = 'SENSOR: ON';
+                sensorStatus.classList.add('active');
+            } else {
+                sensorStatus.textContent = 'SENSOR: N/A';
+                console.warn('Device orientation not supported');
+            }
+        }
+        
+        function handleOrientation(event) {
+            // Beta: front-to-back tilt (-180 to 180)
+            // When phone is held vertically facing user: beta ≈ 90
+            // Tilting phone forward: beta decreases
+            // Tilting phone backward: beta increases
+            
+            let beta = event.beta;
+            
+            if (beta !== null) {
+                // Convert to tilt angle from vertical
+                // When held vertically: beta = 90, tilt = 0
+                // Tilted forward 30°: beta = 60, tilt = 30
+                phoneAngle = 90 - beta;
+                
+                // Clamp to reasonable range
+                phoneAngle = Math.max(-60, Math.min(60, phoneAngle));
+            }
+        }
+        
+        function updateDisplay() {
+            // Calculate actual neck angle
+            // Neck angle = Face angle (from camera) + Phone tilt
+            // This compensates for the phone's orientation
+            
+            const rawNeckAngle = faceAngle + phoneAngle;
+            const calibratedNeckAngle = rawNeckAngle - calibrationOffset;
+            
+            // Update values
+            faceAngleEl.textContent = faceAngle.toFixed(1) + '°';
+            phoneAngleEl.textContent = phoneAngle.toFixed(1) + '°';
+            
+            const displayAngle = calibratedNeckAngle.toFixed(0);
+            neckAngleEl.innerHTML = `${displayAngle}<span class="angle-unit">°</span>`;
+            
+            // Update diagram
+            document.getElementById('resultAngleText').textContent = displayAngle + '°';
+            
+            // Update neck line in diagram
+            const neckLine = document.getElementById('neckLine');
+            const angleRad = calibratedNeckAngle * (Math.PI / 180);
+            const lineLength = 22;
+            const endX = 40 + Math.sin(angleRad) * lineLength;
+            const endY = 52 - Math.cos(angleRad) * lineLength;
+            neckLine.setAttribute('x2', endX);
+            neckLine.setAttribute('y2', endY);
+            
+            // Update phone diagram
+            const phoneRect = document.getElementById('phoneRect');
+            const phoneTiltRad = phoneAngle;
+            phoneRect.setAttribute('transform', `rotate(${phoneTiltRad}, 40, 42.5)`);
+            
+            // Update posture status
+            updatePostureStatus(calibratedNeckAngle);
+        }
+        
+        function updatePostureStatus(angle) {
+            const absAngle = Math.abs(angle);
+            let status, className, color;
+            
+            if (absAngle <= 10) {
+                status = '✓ 良い姿勢';
+                className = 'good';
+                color = 'var(--accent-good)';
+            } else if (absAngle <= 20) {
+                status = '⚠ やや前傾';
+                className = 'warning';
+                color = 'var(--accent-warning)';
+            } else {
+                status = '✗ 姿勢を正して';
+                className = 'bad';
+                color = 'var(--accent-bad)';
+            }
+            
+            postureStatus.textContent = status;
+            postureStatus.className = 'posture-status ' + className;
+            
+            const angleValue = document.querySelector('.angle-value');
+            angleValue.style.color = color;
+        }
+        
+        function calibrate() {
+            // Set current position as zero
+            calibrationOffset = faceAngle + phoneAngle;
+            phoneTiltCalibration = phoneAngle;
+            
+            calibrateBtn.classList.add('calibrating');
+            calibrateBtn.textContent = '✓ キャリブレーション完了';
+            
+            setTimeout(() => {
+                calibrateBtn.classList.remove('calibrating');
+                calibrateBtn.textContent = '正しい姿勢で基準を設定';
+            }, 2000);
+        }
+    </script>
 </body>
 </html>
